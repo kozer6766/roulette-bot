@@ -175,5 +175,3 @@ async def main():
     init_db()
     print("Бот запущен...")
     # Polling убираем, теперь бота будет запускать bot_server.py через webhook
-if __name__ == "__main__":
-    asyncio.run(main())
