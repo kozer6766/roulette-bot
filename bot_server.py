@@ -39,7 +39,7 @@ def webhook():
         return "Unauthorized", 401
 
     try:
-        update = Update.model_validate(request.json, context={"bot": bot_module.bot})
+        update = Update.model_validate(request.json)
         future = asyncio.run_coroutine_threadsafe(
             bot_module.dp.feed_update(bot_module.bot, update),
             bot_loop
@@ -65,7 +65,7 @@ def set_webhook():
     print(f"Webhook установлен на: {webhook_url}")
 
 
-if __name__ == "__main__":
+if__name__ == "__main__":
     Thread(target=set_webhook, daemon=True).start()
 
     port = int(os.environ.get("PORT", 8080))
