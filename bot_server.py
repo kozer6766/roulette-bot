@@ -10,18 +10,15 @@ app = Flask(__name__)
 
 WEBHOOK_SECRET = "my-secret-token-123"
 
-# Создаём отдельный event loop для бота
 bot_loop = asyncio.new_event_loop()
 asyncio.set_event_loop(bot_loop)
 
 
 def run_bot_loop():
-    """Запускаем event loop в отдельном потоке — он будет жить всегда."""
     asyncio.set_event_loop(bot_loop)
     bot_loop.run_forever()
 
 
-# Запускаем цикл событий бота в фоновом потоке
 Thread(target=run_bot_loop, daemon=True).start()
 
 
@@ -42,7 +39,6 @@ def webhook():
 
     try:
         update = Update.model_validate(request.json, context={"bot": bot_module.bot})
-        # Отправляем задачу в постоянный event loop бота
         future = asyncio.run_coroutine_threadsafe(
             bot_module.dp.feed_update(bot_module.bot, update),
             bot_loop
