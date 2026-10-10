@@ -65,7 +65,7 @@ def set_webhook():
     print(f"Webhook установлен на: {webhook_url}")
 
 
-if__name__ == "__main__":
+if __name__ == "__main__":
     Thread(target=set_webhook, daemon=True).start()
 
     port = int(os.environ.get("PORT", 8080))
