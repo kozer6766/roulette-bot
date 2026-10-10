@@ -46,8 +46,11 @@ def webhook():
         future.result(timeout=30)
         return "OK", 200
     except Exception as e:
-        print(f"Ошибка обработки update: {e}")
-        return "Error", 500
+    import traceback
+    print("=== ОШИБКА ===")
+    print(traceback.format_exc())
+    print("=== КОНЕЦ ОШИБКИ ===")
+    return "Error", 500
 
 
 def set_webhook():
