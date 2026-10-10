@@ -36,6 +36,7 @@ def health_check():
 def webhook():
     if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
         return "Unauthorized", 401
+            print("=== WEBHOOK ПОЛУЧЕН ===")
 
     try:
         update = Update.model_validate(request.json, context={"bot": bot_module.bot})
