@@ -173,8 +173,4 @@ async def cb_clear(callback: CallbackQuery):
 async def main():
     init_db()
     print("Бот запущен...")
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-        asyncio.run(main())
+    # Polling убираем, теперь бота будет запускать bot_server.py через webhook
