@@ -19,7 +19,7 @@ def run_bot():
     # Запускаем polling в отдельном потоке
     asyncio.run(bot_module.main())
 
-if name == "main":
+if __name__ == "__main__":
     # Запускаем бота в фоновом режиме
     bot_thread = Thread(target=run_bot)
     bot_thread.start()
