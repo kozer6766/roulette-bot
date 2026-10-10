@@ -5,7 +5,7 @@ from threading import Thread
 from flask import Flask
 import bot as bot_module  # Импортируем наш файл bot.py
 
-app = Flask(name)
+app = Flask(__name__)
 
 @app.route('/')
 def health():
