@@ -8,7 +8,7 @@ from database import init_db, add_spin, get_last_spins, clear_spins
 from stats import get_stats, format_stats, get_prediction, format_prediction
 
 # 👇 ВСТАВЬ СВОЙ ТОКЕН СЮДА (между кавычками)
-BOT_TOKEN = "8504362015:AAGyT2H8vYZG9zcH7E-kCUooNaa2b2wjRiU"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
