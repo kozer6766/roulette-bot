@@ -4,7 +4,9 @@ from threading import Thread
 
 from flask import Flask, request
 from aiogram.types import Update
+print("=== ИМПОРТ BOT НАЧАЛСЯ ===")
 import bot as bot_module
+print("=== ИМПОРТ BOT УСПЕШЕН ===")
 
 app = Flask(__name__)
 
