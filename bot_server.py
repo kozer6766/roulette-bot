@@ -48,8 +48,9 @@ def webhook():
         )
         future.result(timeout=30)
         return "OK", 200
-    except Exception as e:
-        print("OSHIBKA:", e)
+    except Exception:
+        import traceback
+        traceback.print_exc()
         return "Error", 500
 
 
