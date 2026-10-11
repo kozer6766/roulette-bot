@@ -129,11 +129,10 @@ async def cb_last(callback: CallbackQuery):
         await callback.answer()
         return
 
-emoji = {"red": "🔴", "black": "⚫", "green": "🟢"}
+    emoji = {"red": "🔴", "black": "⚫", "green": "🟢"}
     line = " ".join(f"{emoji[c]}{n}" for n, c in spins)
     await callback.message.answer(f"🕒 *Последние 10:*\n{line}", parse_mode="Markdown")
     await callback.answer()
-
 
 @dp.callback_query(F.data == "clear")
 async def cb_clear(callback: CallbackQuery):
