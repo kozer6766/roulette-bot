@@ -148,8 +148,9 @@ async def cmd_last(message: Message):
 @dp.message(Command("predict"))
 async def cmd_predict(message: Message):
     prediction = get_prediction()
-    keyboard = prediction_keyboard() if prediction and prediction.get("candidates") else navigation_keyboard()
-    await message.answer(format_prediction(prediction), parse_mode="HTML", reply_markup=keyboard)
+    # Кнопка сохранения показывается всегда; если кандидатов нет,
+    # обработчик кнопки объяснит пользователю, что нужно сделать.
+    await message.answer(format_prediction(prediction), parse_mode="HTML", reply_markup=prediction_keyboard())
 
 
 @dp.message(Command("tracking"))
@@ -177,37 +178,45 @@ async def cb_stats(callback: CallbackQuery):
 async def cb_predict(callback: CallbackQuery):
     await callback.answer()
     prediction = get_prediction()
-    keyboard = prediction_keyboard() if prediction and prediction.get("candidates") else navigation_keyboard()
+    # Не скрываем кнопку из-за пустого списка кандидатов.
     if callback.message:
-        await callback.message.edit_text(format_prediction(prediction), parse_mode="HTML", reply_markup=keyboard)
+        await callback.message.edit_text(format_prediction(prediction), parse_mode="HTML", reply_markup=prediction_keyboard())
 
 
 @dp.callback_query(F.data == "save_prediction")
 async def cb_save_prediction(callback: CallbackQuery):
-    await callback.answer()
     if not callback.from_user:
+        await callback.answer("Не удалось определить пользователя.", show_alert=True)
         return
+
     prediction = get_prediction()
     if not prediction or not prediction.get("candidates"):
-        if callback.message:
-            await callback.message.answer("⚠️ Пока нет прогноза для сохранения. Добавь результаты и попробуй снова.")
+        await callback.answer("Пока нет кандидатов для сохранения. Добавь результаты рулетки и повтори анализ.", show_alert=True)
         return
+
     candidates = []
     for item in prediction["candidates"]:
         if isinstance(item, dict) and "number" in item:
             candidates.append(int(item["number"]))
         elif isinstance(item, int):
             candidates.append(item)
+
     if not candidates:
-        if callback.message:
-            await callback.message.answer("⚠️ Не удалось прочитать числа прогноза. Проверь stats.py.")
+        await callback.answer("Не удалось прочитать кандидатов. Проверь stats.py.", show_alert=True)
         return
-    method = str(prediction.get("best_method", "unknown"))
-    save_prediction(callback.from_user.id, candidates, method)
+
+    try:
+        prediction_id = save_prediction(callback.from_user.id, candidates, str(prediction.get("best_method", "unknown")))
+    except Exception:
+        await callback.answer("Не удалось сохранить прогноз. Проверь журнал ошибок Render.", show_alert=True)
+        raise
+
+    await callback.answer("Прогноз сохранён")
     if callback.message:
         await callback.message.answer(
             "💾 <b>Прогноз сохранён!</b>\n\n"
-            f"Кандидаты: <code>{', '.join(map(str, candidates))}</code>\n\n"
+            f"Кандидаты: <code>{', '.join(map(str, candidates))}</code>\n"
+            f"Номер прогноза: <code>{prediction_id}</code>\n\n"
             "Следующий добавленный результат проверит этот прогноз.",
             parse_mode="HTML", reply_markup=navigation_keyboard()
         )
