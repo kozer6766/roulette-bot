@@ -8,7 +8,6 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 from database import init_db, add_spin, get_last_spins, clear_spins
 from stats import get_stats, format_stats, get_prediction, format_prediction
 
-# 👇 ВСТАВЬ СВОЙ ТОКЕН СЮДА (между кавычками)
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 bot = Bot(token=BOT_TOKEN)
@@ -57,31 +56,6 @@ async def cmd_add(message: Message):
     await message.answer(f"✅ Добавлено: {emoji} {number}", parse_mode="Markdown")
 
 
-def main_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📊 Статистика", callback_data="stats"),
-            InlineKeyboardButton(text="🔮 Прогноз", callback_data="predict"),
-        ],
-        [
-            InlineKeyboardButton(text="🕒 Последние 10", callback_data="last"),
-            InlineKeyboardButton(text="🗑️ Очистить", callback_data="clear"),
-        ],
-    ])
-
-
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer(
-        "🎰 *Бот-статистик рулетки*\n\n"
-        "Отправь числа через пробел — они добавятся в базу.\n"
-        "Например: 7 18 15 5 35\n\n"
-        "Или пользуйся кнопками ниже:",
-        parse_mode="Markdown",
-        reply_markup=main_keyboard()
-    )
-
-
 @dp.message(Command("last"))
 async def cmd_last(message: Message):
     spins = get_last_spins(10)
@@ -106,12 +80,8 @@ async def cmd_clear(message: Message):
     await message.answer("🗑️ База очищена.")
 
 
-import re
-
-
 @dp.message(F.text.regexp(r"^\s*\d{1,2}(\s*[,;\s]\s*\d{1,2})*\s*$"))
 async def quick_add(message: Message):
-    # Находим все числа в сообщении
     nums = re.findall(r"\d{1,2}", message.text)
 
     added = []
@@ -136,6 +106,7 @@ async def quick_add(message: Message):
             f"⚠️ Пропущено (вне диапазона 0–36): {', '.join(skipped)}"
         )
 
+
 @dp.callback_query(F.data == "stats")
 async def cb_stats(callback: CallbackQuery):
     stats = get_stats()
@@ -158,7 +129,7 @@ async def cb_last(callback: CallbackQuery):
         await callback.answer()
         return
 
-    emoji = {"red": "🔴", "black": "⚫", "green": "🟢"}
+emoji = {"red": "🔴", "black": "⚫", "green": "🟢"}
     line = " ".join(f"{emoji[c]}{n}" for n, c in spins)
     await callback.message.answer(f"🕒 *Последние 10:*\n{line}", parse_mode="Markdown")
     await callback.answer()
@@ -174,6 +145,3 @@ async def cb_clear(callback: CallbackQuery):
 async def main():
     init_db()
     print("Бот запущен...")
-    # Polling убираем, теперь бота будет запускать bot_server.py через webhook
-if __name__ == "__main__":
-    asyncio.run(main())
