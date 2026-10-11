@@ -1,12 +1,11 @@
+
 import asyncio
 import os
 from threading import Thread
 
 from flask import Flask, request
 from aiogram.types import Update
-print("=== ИМПОРТ BOT НАЧАЛСЯ ===")
 import bot as bot_module
-print("=== ИМПОРТ BOT УСПЕШЕН ===")
 
 app = Flask(__name__)
 
@@ -36,7 +35,7 @@ def health_check():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    print("=== WEBHOOK ПОЛУЧЕН ===")
+    print("=== WEBHOOK POLUCHEN ===")
     if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
         return "Unauthorized", 401
 
@@ -50,9 +49,9 @@ def webhook():
         return "OK", 200
     except Exception as e:
         import traceback
-        print("=== ОШИБКА ===")
+        print("=== OSHIBKA ===")
         print(traceback.format_exc())
-        print("=== КОНЕЦ ОШИБКИ ===")
+        print("=== KONEC OSHIBKI ===")
         return "Error", 500
 
 
@@ -67,7 +66,7 @@ def set_webhook():
     print(f"Webhook установлен на: {webhook_url}")
 
 
-if __name__ == "__main__":
+if __name__ == "main":
     Thread(target=set_webhook, daemon=True).start()
 
     port = int(os.environ.get("PORT", 8080))
