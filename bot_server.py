@@ -8,6 +8,9 @@ import bot as bot_module
 
 app = Flask(__name__)
 
+# Инициализация базы данных при запуске
+bot_module.init_db()
+
 WEBHOOK_SECRET = "my-secret-token-123"
 
 bot_loop = asyncio.new_event_loop()
