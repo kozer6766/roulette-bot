@@ -1,254 +1,272 @@
-import os
-import re
+import sqlite3
+import json
+from datetime import datetime
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
-from aiogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    CallbackQuery,
-)
-
-from database import init_db, add_spin, get_last_spins, clear_spins
-from stats import get_stats, format_stats, get_prediction, format_prediction
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-if not BOT_TOKEN:
-    raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-COLORS = {"red": "🔴", "black": "⚫", "green": "🟢"}
+DB_PATH = "roulette.db"
 
 
-def main_keyboard() -> InlineKeyboardMarkup:
-    """Главное меню в стиле казино."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📊 Статистика", callback_data="stats"),
-            InlineKeyboardButton(text="🔮 Анализ частот", callback_data="predict"),
-        ],
-        [
-            InlineKeyboardButton(text="🎲 Последние спины", callback_data="last"),
-            InlineKeyboardButton(text="➕ Как добавить", callback_data="help_add"),
-        ],
-        [
-            InlineKeyboardButton(text="🗑️ Очистить историю", callback_data="clear"),
-        ],
-    ])
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
-def navigation_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⬅️ Назад", callback_data="back"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="home"),
-        ]
-    ])
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Существующая таблица сохраняется без удаления старых записей.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS spins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            number INTEGER NOT NULL,
+            color TEXT NOT NULL,
+            user_id INTEGER,
+            timestamp TEXT
+        )
+    """)
+
+    # Таблица для сохранённых прогнозов.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            candidates TEXT NOT NULL,
+            method TEXT,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            actual_number INTEGER,
+            hit INTEGER,
+            evaluated_at TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_predictions_user_status
+        ON predictions (user_id, status)
+    """)
+
+    conn.commit()
+    conn.close()
 
 
-def clear_confirmation_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да, очистить", callback_data="clear_confirm"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="home"),
-        ]
-    ])
+def get_color(number):
+    if number == 0:
+        return "green"
+
+    red_numbers = {
+        1, 3, 5, 7, 9, 12, 14, 16, 18,
+        19, 21, 23, 25, 27, 30, 32, 34, 36
+    }
+
+    return "red" if number in red_numbers else "black"
 
 
-def home_text() -> str:
-    return (
-        "🎰 <b>ROULETTE CLUB</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "📈 <b>Статистика и история рулетки</b>\n\n"
-        "Отправь выпавшие числа через пробел, например:\n"
-        "<code>7 18 15 5 35</code>\n\n"
-        "Или выбери действие в меню ниже.\n\n"
-        "⚠️ Частоты показывают прошлые результаты и не гарантируют будущие."
+def add_spin(number, user_id):
+    if not isinstance(number, int) or not 0 <= number <= 36:
+        raise ValueError("Число рулетки должно быть от 0 до 36.")
+
+    color = get_color(number)
+    now = datetime.now().isoformat()
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Записываем новый результат.
+    cur.execute(
+        """
+        INSERT INTO spins (number, color, user_id, timestamp)
+        VALUES (?, ?, ?, ?)
+        """,
+        (number, color, user_id, now)
     )
 
+    # Проверяем все сохранённые прогнозы этого пользователя,
+    # ожидающие следующего результата.
+    if user_id is not None:
+        cur.execute(
+            """
+            SELECT id, candidates
+            FROM predictions
+            WHERE user_id = ? AND status = 'pending'
+            """,
+            (user_id,)
+        )
 
-async def show_home(target, edit: bool = False):
-    """Показывает меню; target может быть Message или CallbackQuery.message."""
-    if edit:
-        try:
-            await target.edit_text(
-                home_text(), parse_mode="HTML", reply_markup=main_keyboard()
+        pending_predictions = cur.fetchall()
+
+        for prediction in pending_predictions:
+            try:
+                candidates = json.loads(prediction["candidates"])
+                hit = int(number in candidates)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                # Не оцениваем запись с повреждённым списком чисел.
+                continue
+
+            cur.execute(
+                """
+                UPDATE predictions
+                SET status = 'evaluated',
+                    actual_number = ?,
+                    hit = ?,
+                    evaluated_at = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (number, hit, now, prediction["id"])
             )
-            return
-        except Exception:
-            # Например, сообщение уже содержит такой же текст.
-            pass
-    await target.answer(home_text(), parse_mode="HTML", reply_markup=main_keyboard())
+
+    conn.commit()
+    conn.close()
+
+    return color
 
 
-@dp.message(Command("start", "menu"))
-async def cmd_start(message: Message):
-    await show_home(message)
+def save_prediction(user_id, candidates, method="unknown"):
+    if user_id is None:
+        raise ValueError("Не удалось определить пользователя.")
 
+    # Оставляем только уникальные целые числа в диапазоне 0–36.
+    clean_candidates = []
+    for number in candidates:
+        if (
+            isinstance(number, int)
+            and not isinstance(number, bool)
+            and 0 <= number <= 36
+            and number not in clean_candidates
+        ):
+            clean_candidates.append(number)
 
-@dp.message(Command("add"))
-async def cmd_add(message: Message):
-    args = (message.text or "").split()
-    if len(args) != 2 or not args[1].isdigit():
-        await message.answer("⚠️ Используй команду так: <code>/add 17</code>", parse_mode="HTML")
-        return
+    if not clean_candidates:
+        raise ValueError("Список кандидатов пуст.")
 
-    number = int(args[1])
-    if not 0 <= number <= 36:
-        await message.answer("⚠️ Число должно быть от 0 до 36.")
-        return
+    conn = get_connection()
+    cur = conn.cursor()
 
-    color = add_spin(number, message.from_user.id if message.from_user else None)
-    await message.answer(
-        f"✅ Результат записан: {COLORS[color]} <b>{number}</b>",
-        parse_mode="HTML",
-        reply_markup=main_keyboard(),
+    cur.execute(
+        """
+        INSERT INTO predictions
+            (user_id, candidates, method, created_at, status)
+        VALUES (?, ?, ?, ?, 'pending')
+        """,
+        (
+            user_id,
+            json.dumps(clean_candidates),
+            str(method),
+            datetime.now().isoformat()
+        )
     )
 
+prediction_id = cur.lastrowid
+    conn.commit()
+    conn.close()
 
-@dp.message(Command("last"))
-async def cmd_last(message: Message):
-    await send_last(message)
+    return prediction_id
 
 
-@dp.message(Command("predict"))
-async def cmd_predict(message: Message):
-    await message.answer(
-        format_prediction(get_prediction()),
-        parse_mode="HTML",
-        reply_markup=navigation_keyboard(),
+def get_prediction_stats(user_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN hit = 1 THEN 1 ELSE 0 END), 0) AS hits,
+            COALESCE(SUM(CASE WHEN hit = 0 THEN 1 ELSE 0 END), 0) AS misses,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0)
+                AS pending
+        FROM predictions
+        WHERE user_id = ?
+        """,
+        (user_id,)
     )
 
+    row = cur.fetchone()
+    total = row["total"]
+    hits = row["hits"]
+    misses = row["misses"]
+    pending = row["pending"]
+    evaluated = hits + misses
 
-@dp.message(Command("clear"))
-async def cmd_clear(message: Message):
-    await message.answer(
-        "🗑️ <b>Очистить всю историю спинов?</b>\nЭто действие нельзя отменить.",
-        parse_mode="HTML",
-        reply_markup=clear_confirmation_keyboard(),
+    cur.execute(
+        """
+        SELECT candidates, method, created_at, actual_number, hit, status
+        FROM predictions
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT 10
+        """,
+        (user_id,)
     )
 
+    recent_rows = cur.fetchall()
+    conn.close()
 
-@dp.message(F.text.regexp(r"^\s*\d{1,2}(\s*[,;\s]\s*\d{1,2})*\s*$"))
-async def quick_add(message: Message):
-    nums = re.findall(r"\d{1,2}", message.text or "")
-    added, skipped = [], []
+    recent = []
+    for item in recent_rows:
+        recent.append({
+            "candidates": json.loads(item["candidates"]),
+            "method": item["method"],
+            "created_at": item["created_at"],
+            "actual_number": item["actual_number"],
+            "hit": item["hit"],
+            "status": item["status"]
+        })
 
-    for num_str in nums:
-        number = int(num_str)
-        if 0 <= number <= 36:
-            color = add_spin(number, message.from_user.id if message.from_user else None)
-            added.append(f"{COLORS[color]} {number}")
-        else:
-            skipped.append(num_str)
-
-    if added:
-        await message.answer(
-            f"🎲 <b>Записано результатов: {len(added)}</b>\n" + "  ·  ".join(added),
-            parse_mode="HTML",
-            reply_markup=main_keyboard(),
-        )
-    if skipped:
-        await message.answer(
-            "⚠️ Пропущены числа вне диапазона 0–36: " + ", ".join(skipped)
-        )
-
-
-async def send_last(target):
-    spins = get_last_spins(10)
-    if not spins:
-        text = "🎲 <b>История пока пуста.</b>\nДобавь результат числом от 0 до 36."
-    else:
-        line = "  ·  ".join(f"{COLORS[color]} <b>{number}</b>" for number, color in spins)
-        text = f"🎲 <b>ПОСЛЕДНИЕ {len(spins)} СПИНОВ</b>\n━━━━━━━━━━━━━━━━━━\n{line}"
-    await target.answer(text, parse_mode="HTML", reply_markup=navigation_keyboard())
+    return {
+        "total": total,
+        "evaluated": evaluated,
+        "hits": hits,
+        "misses": misses,
+        "pending": pending,
+        "hit_rate": round(hits / evaluated * 100, 1) if evaluated else 0.0,
+        "recent": recent
+    }
 
 
-@dp.callback_query(F.data == "stats")
-async def cb_stats(callback: CallbackQuery):
-    await callback.answer()
-    text = format_stats(get_stats())
-    if callback.message:
-        await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=navigation_keyboard()
-        )
+def get_all_spins():
+    conn = get_connection()
+    cur = conn.cursor()
 
-
-@dp.callback_query(F.data == "predict")
-async def cb_predict(callback: CallbackQuery):
-    await callback.answer()
-    if callback.message:
-        await callback.message.edit_text(
-            format_prediction(get_prediction()),
-            parse_mode="HTML",
-            reply_markup=navigation_keyboard(),
-        )
-
-
-@dp.callback_query(F.data == "last")
-async def cb_last(callback: CallbackQuery):
-    await callback.answer()
-    spins = get_last_spins(10)
-    if not spins:
-        text = "🎲 <b>История пока пуста.</b>\nДобавь результат числом от 0 до 36."
-    else:
-        line = "  ·  ".join(f"{COLORS[color]} <b>{number}</b>" for number, color in spins)
-        text = f"🎲 <b>ПОСЛЕДНИЕ {len(spins)} СПИНОВ</b>\n━━━━━━━━━━━━━━━━━━\n{line}"
-    if callback.message:
-        await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=navigation_keyboard()
-        )
-
-
-@dp.callback_query(F.data == "help_add")
-async def cb_help_add(callback: CallbackQuery):
-    await callback.answer()
-    text = (
-        "➕ <b>КАК ДОБАВИТЬ РЕЗУЛЬТАТЫ</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "Можно отправить одно число:\n<code>/add 17</code>\n\n"
-        "Или несколько чисел через пробел:\n<code>7 18 15 5 35</code>\n\n"
-        "Допустимые значения: от 0 до 36."
+    cur.execute(
+        "SELECT number, color, timestamp FROM spins ORDER BY id DESC"
     )
-    if callback.message:
-        await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=navigation_keyboard()
-        )
+
+    rows = cur.fetchall()
+    result = [tuple(row) for row in rows]
+    conn.close()
+
+    return result
 
 
-@dp.callback_query(F.data == "clear")
-async def cb_clear(callback: CallbackQuery):
-    await callback.answer()
-    if callback.message:
-        await callback.message.edit_text(
-            "🗑️ <b>Очистить всю историю спинов?</b>\nЭто действие нельзя отменить.",
-            parse_mode="HTML",
-            reply_markup=clear_confirmation_keyboard(),
-        )
+def get_last_spins(limit=10):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT number, color
+        FROM spins
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,)
+    )
+
+    rows = cur.fetchall()
+    result = [tuple(row) for row in rows]
+    conn.close()
+
+    return result
 
 
-@dp.callback_query(F.data == "clear_confirm")
-async def cb_clear_confirm(callback: CallbackQuery):
-    clear_spins()
-    await callback.answer("История очищена")
-    if callback.message:
-        await callback.message.edit_text(
-            "🗑️ <b>История очищена.</b>\nМожно начинать новую запись результатов.",
-            parse_mode="HTML",
-            reply_markup=navigation_keyboard(),
-        )
+def clear_spins():
+    conn = get_connection()
+    cur = conn.cursor()
 
+    # Очищаем результаты и историю проверки прогнозов.
+    cur.execute("DELETE FROM spins")
+    cur.execute("DELETE FROM predictions")
 
-@dp.callback_query(F.data.in_({"home", "back"}))
-async def cb_home(callback: CallbackQuery):
-    await callback.answer()
-    if callback.message:
-        await show_home(callback.message, edit=True)
-
-
-async def main():
-    init_db()
-    print("Бот готов к работе через webhook.")
+    conn.commit()
+    conn.close()
