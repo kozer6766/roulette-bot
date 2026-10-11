@@ -32,20 +32,30 @@ def health_check():
     return "OK"
 
 
+print("=== РЕГИСТРАЦИЯ WEBHOOK ===")
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    print("=== WEBHOOK ВЫЗВАН ===")
     if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+        print("=== WEBHOOK: НЕАВТОРИЗОВАН ===")
         return "Unauthorized", 401
 
+    print("=== WEBHOOK: АВТОРИЗОВАН ===")
     try:
         update = Update.model_validate(request.json)
+        print("=== WEBHOOK: UPDATE РАЗОБРАН ===")
         future = asyncio.run_coroutine_threadsafe(
             bot_module.dp.feed_update(bot_module.bot, update),
             bot_loop
         )
+        print("=== WEBHOOK: ЗАДАЧА СОЗДАНА ===")
         future.result(timeout=30)
+        print("=== WEBHOOK: УСПЕШНО ===")
         return "OK", 200
     except Exception as e:
+        print("=== WEBHOOK: ОШИБКА ===")
         print("OSHIBKA:", e)
         return "Error", 500
 
