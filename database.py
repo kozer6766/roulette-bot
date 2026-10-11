@@ -92,7 +92,7 @@ def add_spin(number, user_id):
             """,
             (user_id,)
         )
-
+        
         pending_predictions = cur.fetchall()
 
         for prediction in pending_predictions:
