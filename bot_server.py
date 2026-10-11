@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 from threading import Thread
@@ -35,7 +34,6 @@ def health_check():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    print("=== WEBHOOK POLUCHEN ===")
     if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
         return "Unauthorized", 401
 
@@ -48,10 +46,7 @@ def webhook():
         future.result(timeout=30)
         return "OK", 200
     except Exception as e:
-        import traceback
-        print("=== OSHIBKA ===")
-        print(traceback.format_exc())
-        print("=== KONEC OSHIBKI ===")
+        print("OSHIBKA:", e)
         return "Error", 500
 
 
@@ -66,7 +61,7 @@ def set_webhook():
     print(f"Webhook установлен на: {webhook_url}")
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     Thread(target=set_webhook, daemon=True).start()
 
     port = int(os.environ.get("PORT", 8080))
