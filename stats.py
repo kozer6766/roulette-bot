@@ -139,7 +139,7 @@ def get_stats():
         sum(1 for n in numbers if 25 <= n <= 36),
     ]
     
-        return {
+    return {
         "total": total,
         "top_numbers": number_counter.most_common(5),
         "color_pct": {
